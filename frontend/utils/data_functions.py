@@ -143,27 +143,29 @@ def add_noise(labels, noise:int=0):
     return adjusted_noise_constants
 
 
+def fit_data(X:np.ndarray, y:np.ndarray, degree:int = 1):
+    """
+    Fit X data with a polynomial. Default degree is 1 (linear regression model)
+
+    Returns:
+        (np.ndarray) An array comprising of the predicted y values of the model given the X inputs
+    """
+    model_coefs = np.polyfit(X, y, degree)[::-1]
+    y_pred = np.zeros(len(y))
+    print(f'Raw X values: {X}')
+    for deg in range(degree + 1):
+        print(f'DEGREE {deg} X values = {model_coefs[deg] * np.pow(X, deg)}')
+        y_pred = y_pred + model_coefs[deg] * np.pow(X, deg)
+        print(f'y_pred = {y_pred}')
+
+    return y_pred
+
+
 # --- Calculate loss in Python ---
 # Fit linear regression manually using numpy
-def compute_avg_loss(dataframe, fit_type:str = 'linear'):
-    """
-    Computes the average (across each point) residual of the data given a regression line.
-    """
-    X = dataframe["X"].values
-    y = dataframe["y"].values
-    N = len(X)
-
-    if fit_type == 'linear':
-        coef = np.polyfit(X, y, 1) 
-    else:
-        raise ValueError(f'fit_type {fit_type} currently not supported')
-    slope, intercept = coef
-    y_pred = slope * X + intercept
-
-    mse = np.round(np.mean(np.abs(y - y_pred)), decimals=6)
-
-    return mse
-
+def avg_residual_error(y: np.ndarray, y_pred: np.ndarray):
+    error = np.mean(np.abs(y - y_pred))
+    return np.round(error, decimals=6)
 
 
 # TODO:

@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 
+from sklearn.linear_model import LinearRegression
 import pandas as pd
 import altair as alt
 
@@ -8,7 +9,8 @@ from utils.data_functions import (
     process_csv,
     generate_and_update_data,
     add_noise,
-    compute_avg_loss
+    fit_data,
+    avg_residual_error
 )
 
 from utils.api import send_get_request, send_post_request
@@ -17,6 +19,53 @@ hyperparams = {
     'N_SAMPLES': 100,
     'N_FEATURES': 2
 }
+
+
+def display_data(X, y, degree:int, display_curve:bool=False):
+    """
+    Creates an altair chart that displays the X and y data points with an optional regression curve.
+
+    Returns:
+        Tuple[alt.Chart, Optional[float]]:
+            - alt.Chart: An Altair scatter plot of the data (with optional regression curve).
+            - float or None: The average residual error of the regression model if
+              ``display_curve=True``, otherwise None.
+    """
+    data = {
+        'X': X,
+        'y': y
+    }
+
+    df = pd.DataFrame(data)
+    graph = (alt.Chart(data=df)
+             .mark_circle()
+             .encode(
+                 x = alt.X('X', scale = alt.Scale(domain=[-10, 10])), 
+                 y = alt.Y('y', scale = alt.Scale(domain=[-25, 25]))
+                 )
+             .interactive()
+             )
+
+    if display_curve:
+        # compute regression model and display curve
+        y_pred = fit_data(X, y, degree=degree)
+        pred_data = {
+            'X' : X,
+            'y_pred' : y_pred
+        }
+        pred_df = pd.DataFrame(data=pred_data)
+        regression_line = (alt.Chart(data=pred_df)
+                        .encode(
+                            x = 'X',
+                            y = 'y_pred'
+                        )
+                        .mark_line(color='azure'))
+        
+        error = avg_residual_error(y, y_pred)
+        return graph + regression_line, error
+    else:
+        return graph, None
+
 
 def save_dataset(dataset_name):
     """
@@ -47,6 +96,7 @@ def save_dataset(dataset_name):
         
         st.success(f'Your new dataset has been successfully saved as [{name}]!')
 
+
 def main():
     print('Running Script...')
     st.sidebar.header("Model")
@@ -66,9 +116,9 @@ def main():
     uploaded_csv = st.file_uploader('File Uploader', type=['csv'])
     process_csv(uploaded_csv)
 
-    col_1, col_2 = st.columns([3,1], gap='small', vertical_alignment='center')
+    col_1_1, col_1_2 = st.columns([3,1], gap='small', vertical_alignment='center')
     
-    with col_1:
+    with col_1_1:
         noise_amplifier = st.slider(
             'Noise Setting', 
             min_value = 0.0,
@@ -79,32 +129,22 @@ def main():
     X = st.session_state['current_data']['X']
     y = st.session_state['current_data']['y']
     
-    with col_2:
+    with col_1_2:
         if st.button(f'Adjust Noise', width='stretch'):
             st.session_state['current_data']['added_noise'] = add_noise(y, noise = noise_amplifier * abs(max(X)) / 2.5)
     
     noise = st.session_state['current_data']['added_noise']
     adjusted_y = y + noise
-
-    data = {
-        'X' : X,
-        'y' : adjusted_y
-    }
-
-    df = pd.DataFrame(data=data)
-
-    graph = (alt.Chart(data=df)
-             .mark_circle()
-             .encode(
-                 x = alt.X('X', scale = alt.Scale(domain=[-10, 10])), 
-                 y = alt.Y('y', scale = alt.Scale(domain=[-25, 25]))
-                 )
-             .interactive()
-             )
     
-    regression_line = graph.transform_regression('X', 'y').mark_line(color='azure')
-    loss = compute_avg_loss(df)
-    
+    col_2_1, _ = st.columns([1,3], gap='small', vertical_alignment='center')
+
+    with col_2_1:
+        polynomial_degree = st.number_input(
+            'Model Complexity',
+            min_value = 0,
+            max_value = 50,
+            step = 1
+        )
 
     if st.session_state['display_model']:
         model_data_text = ":green[Modeling Data]"
@@ -114,17 +154,23 @@ def main():
     if st.button(model_data_text, width='stretch'):
         st.session_state['display_model'] = not st.session_state['display_model']
         st.rerun()
-
-    if st.session_state['display_model']:
-        st.altair_chart(graph + regression_line)
-        st.markdown(f"<h5 style='text-align: center;'>Current Loss: {loss}</h1>", unsafe_allow_html=True)
-    else:
-        st.altair_chart(graph)
     
-    col_1_1, col_1_2 = st.columns(2, gap='small', vertical_alignment='center')
-    with col_1_1:
+    graph, error = display_data(X, adjusted_y, degree=polynomial_degree, display_curve = st.session_state['display_model'])
+    st.altair_chart(graph)
+
+    if error is not None:
+        if error < 5:
+            color = 'green'
+        elif error < 15:
+            color = 'orange'
+        else:
+            color = 'red'
+        st.markdown(f"<p style='text-align:center; font-size:24px;'>Average Error: <span style='color:{color};'>{error}</span></p>", unsafe_allow_html=True)
+    
+    col_3_1, col_3_2 = st.columns(2, gap='small', vertical_alignment='center')
+    with col_3_1:
         user_input = st.selectbox(
-            'Choose a regression problem type',
+            'Choose a curve to generate',
             ('Linear', 'Quadratic', 'Exponential', 'Logarithmic')
         )
         user_input_to_function_input = {
@@ -141,7 +187,7 @@ def main():
                 keep_noise=True
             )
     
-    with col_1_2:
+    with col_3_2:
         dataset_name = st.text_input(
             'Name of the current dataset', 
             placeholder="Dataset Name", 
